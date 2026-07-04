@@ -1,0 +1,15 @@
+package com.flowboardx.domain.enums;
+
+public enum AuditAction {
+    WORKFLOW_CREATED,
+    WORKFLOW_UPDATED,
+    WORKFLOW_DELETED,
+    WORKFLOW_PUBLISHED,
+    RUN_STARTED,
+    RUN_COMPLETED,
+    RUN_FAILED,
+    RUN_REPLAYED,
+    RUN_CANCELLED,
+    APPROVAL_GRANTED,
+    APPROVAL_REJECTED
+}
