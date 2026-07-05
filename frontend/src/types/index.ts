@@ -168,3 +168,55 @@ export interface Page<T> {
   number: number
   size: number
 }
+
+// ── Queue Operations Dashboard types ──────────────────────────────────────────
+
+export interface TrendPoint {
+  timestamp: string
+  value: number
+}
+
+export interface WorkerStatus {
+  workerId: number
+  status: 'IDLE' | 'ACTIVE'
+  currentRunId?: string
+  currentWorkflowName?: string
+  currentNodeLabel?: string
+  completedJobs: number
+  failedJobs: number
+  lastHeartbeat: string
+  currentDurationMs: number
+}
+
+export type QueueActivityEventType =
+  | 'ENQUEUED' | 'DEQUEUED' | 'NODE_STARTED' | 'RETRY' | 'NODE_FAILED' | 'RUN_COMPLETED' | 'RUN_FAILED'
+
+export interface QueueActivityEvent {
+  type: QueueActivityEventType
+  timestamp: string
+  runId?: string
+  workflowName?: string
+  nodeLabel?: string
+  workerId?: number
+  message: string
+}
+
+export interface QueueMetrics {
+  queueLength: number
+  peakQueueLength: number
+  queueThroughputPerMinute: number
+  avgQueueWaitMs: number | null
+  workerUtilizationPercent: number
+  activeWorkers: number
+  idleWorkers: number
+  totalWorkers: number
+  retryCount: number
+  queueDrainRatePerMinute: number
+  totalJobsProcessed: number
+  workers: WorkerStatus[]
+  queueLengthTrend: TrendPoint[]
+  workerUtilizationTrend: TrendPoint[]
+  queueThroughputTrend: TrendPoint[]
+  executionLatencyTrend: TrendPoint[]
+  queueWaitTimeTrend: TrendPoint[]
+}

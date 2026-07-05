@@ -7,6 +7,7 @@ import com.flowboardx.domain.enums.*;
 import com.flowboardx.dto.*;
 import com.flowboardx.engine.*;
 import com.flowboardx.engine.executor.NodeExecutorRegistry;
+import com.flowboardx.ops.QueueMetricsService;
 import com.flowboardx.queue.*;
 import com.flowboardx.repository.*;
 import com.flowboardx.websocket.*;
@@ -40,6 +41,7 @@ public class ExecutionService {
     private final DagEngine dagEngine;
     private final NodeExecutorRegistry executorRegistry;
     private final WebSocketBroadcaster broadcaster;
+    private final QueueMetricsService metricsService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -89,6 +91,7 @@ public class ExecutionService {
                 .workflowRunId(run.getId())
                 .startNodeIds(startNodes)
                 .alreadyCompletedNodeIds(alreadyCompleted)
+                .workflowName(workflow.getName())
                 .build();
 
         // CRITICAL: this method is @Transactional - the WorkflowRun row above isn't
@@ -118,7 +121,7 @@ public class ExecutionService {
 
     // ── Worker entry point ─────────────────────────────────────────────────────
 
-    public void processQueuedRun(ExecutionMessage message) {
+    public void processQueuedRun(ExecutionMessage message, int workerId) {
         UUID runId = message.getWorkflowRunId();
         WorkflowRun run = runRepo.findById(runId)
                 .orElseThrow(() -> new IllegalStateException(
@@ -154,7 +157,7 @@ public class ExecutionService {
             }
         }
 
-        ExecutionListener listener = buildListener(run);
+        ExecutionListener listener = buildListener(run, workerId, message.getWorkflowName());
 
         RunStatus finalStatus = dagEngine.execute(
                 graph, context, executorRegistry, listener,
@@ -186,6 +189,23 @@ public class ExecutionService {
                 .action(auditAction)
                 .details("Run finished with status " + finalStatus + " in " + run.getDurationMs() + "ms")
                 .build());
+
+        safeMetrics(() -> metricsService.onRunFinished(workerId, runId, message.getWorkflowName(),
+                finalStatus == RunStatus.SUCCEEDED, run.getDurationMs()));
+    }
+
+    /**
+     * Every metrics/ops call in this class is wrapped through here. Instrumentation must
+     * NEVER be able to break real execution - if this throws, we log and move on rather
+     * than letting it propagate into DagEngine's listener callbacks (which run outside
+     * DagEngine's own try/catch for onNodeStarted specifically) or the queue worker loop.
+     */
+    private void safeMetrics(Runnable action) {
+        try {
+            action.run();
+        } catch (Exception e) {
+            log.warn("Queue Ops metrics call failed (execution is unaffected): {}", e.getMessage(), e);
+        }
     }
 
     // ── Queries ────────────────────────────────────────────────────────────────
@@ -247,13 +267,14 @@ public class ExecutionService {
                 .workflowRunId(runId)
                 .startNodeIds(childNodes)
                 .alreadyCompletedNodeIds(completed)
+                .workflowName(run.getWorkflow().getName())
                 .build();
         enqueueAfterCommit(message);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private ExecutionListener buildListener(WorkflowRun run) {
+    private ExecutionListener buildListener(WorkflowRun run, int workerId, String workflowName) {
         UUID runId = run.getId();
         return new ExecutionListener() {
             @Override
@@ -272,6 +293,7 @@ public class ExecutionService {
                         .runId(runId).nodeId(node.getId()).nodeLabel(node.getNode().getLabel())
                         .nodeStatus(NodeExecutionStatus.RUNNING).attemptNumber(attempt)
                         .timestamp(Instant.now()).build());
+                safeMetrics(() -> metricsService.onNodeStarted(workerId, runId, workflowName, node.getNode().getLabel()));
             }
 
             @Override
@@ -306,6 +328,7 @@ public class ExecutionService {
                         .nodeStatus(NodeExecutionStatus.RETRYING).attemptNumber(attempt)
                         .nextRetryDelayMs(nextDelayMs).errorMessage(error)
                         .timestamp(Instant.now()).build());
+                safeMetrics(() -> metricsService.onRetry(workerId, runId, workflowName, node.getNode().getLabel()));
             }
 
             @Override
@@ -323,6 +346,7 @@ public class ExecutionService {
                         .nodeStatus(NodeExecutionStatus.FAILED).attemptNumber(attempt)
                         .durationMs(durationMs).errorMessage(error)
                         .timestamp(Instant.now()).build());
+                safeMetrics(() -> metricsService.onNodeFailed(workerId, runId, workflowName, node.getNode().getLabel()));
             }
 
             @Override

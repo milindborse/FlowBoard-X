@@ -1,6 +1,7 @@
 package com.flowboardx.queue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flowboardx.ops.QueueMetricsService;
 import com.flowboardx.service.ExecutionService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -28,6 +29,7 @@ public class ExecutionQueueWorker {
 
     private final StringRedisTemplate redisTemplate;
     private final ExecutionService executionService;
+    private final QueueMetricsService metricsService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${flowboardx.execution.queue-key}")
@@ -39,9 +41,11 @@ public class ExecutionQueueWorker {
     private ExecutorService pollers;
     private volatile boolean running = true;
 
-    public ExecutionQueueWorker(StringRedisTemplate redisTemplate, ExecutionService executionService) {
+    public ExecutionQueueWorker(StringRedisTemplate redisTemplate, ExecutionService executionService,
+                                 QueueMetricsService metricsService) {
         this.redisTemplate = redisTemplate;
         this.executionService = executionService;
+        this.metricsService = metricsService;
     }
 
     @PostConstruct
@@ -61,7 +65,17 @@ public class ExecutionQueueWorker {
                 if (payload == null) continue; // timed out, poll again
                 ExecutionMessage message = objectMapper.readValue(payload, ExecutionMessage.class);
                 log.info("Worker-{} picked up run {}", workerId, message.getWorkflowRunId());
-                executionService.processQueuedRun(message);
+
+                // Metrics hook - purely observational, does not affect processing below.
+                // Guarded: if this throws for any reason, the run must still get processed.
+                try {
+                    long enqueuedAt = message.getEnqueuedAtEpochMs() != null ? message.getEnqueuedAtEpochMs() : System.currentTimeMillis();
+                    metricsService.onDequeue(workerId, message.getWorkflowRunId(), message.getWorkflowName(), enqueuedAt);
+                } catch (Exception metricsEx) {
+                    log.warn("Worker-{} queue-metrics hook failed (job still processed): {}", workerId, metricsEx.getMessage());
+                }
+
+                executionService.processQueuedRun(message, workerId);
             } catch (Exception e) {
                 log.error("Worker-{} failed to process queue message", workerId, e);
             }

@@ -2,6 +2,7 @@ import api from './client'
 import type {
   Workflow, WorkflowVersion, WorkflowRun, NodeExecution, DashboardStats, AnalyticsData, Page,
   ApiResponse, CreateWorkflowRequest, UpdateWorkflowRequest, WorkflowStatus,
+  QueueMetrics, QueueActivityEvent,
 } from '../types'
 
 // Every backend response we control is wrapped as { success, message, data, timestamp }.
@@ -81,4 +82,10 @@ export const authApi = {
     api.post<ApiResponse<any>>('/auth/login', { email, password }).then(unwrap),
   register: (email: string, password: string, displayName: string) =>
     api.post<ApiResponse<any>>('/auth/register', { email, password, displayName }).then(unwrap),
+}
+
+export const opsApi = {
+  queueMetrics: () => api.get<ApiResponse<QueueMetrics>>('/ops/queue-metrics').then(unwrap),
+  activityFeed: (limit = 50) => api.get<ApiResponse<QueueActivityEvent[]>>('/ops/activity-feed', { params: { limit } }).then(unwrap),
+  resetMetrics: () => api.post('/ops/reset-metrics'),
 }

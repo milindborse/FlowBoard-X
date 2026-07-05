@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { analyticsApi } from '../api/workflows'
 import { RunStatusBadge } from '../components/StatusBadge'
+import QueueOperationsSection from '../components/QueueOperationsSection'
 import { formatDuration, formatRelative } from '../lib/utils'
 
 function StatCard({ label, value, sub, icon: Icon, accent }: {
@@ -32,7 +33,6 @@ export default function Dashboard() {
     queryKey: ['dashboard'],
     queryFn: analyticsApi.dashboard,
     refetchInterval: 15_000,
-    refetchIntervalInBackground: true,
     refetchOnMount: 'always',
   })
 
@@ -145,6 +145,9 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Queue Operations Dashboard - additive layer, existing cards/charts above are untouched */}
+      <QueueOperationsSection />
     </div>
   )
 }

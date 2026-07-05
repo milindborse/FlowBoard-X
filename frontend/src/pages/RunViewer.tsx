@@ -83,6 +83,18 @@ export default function RunViewer() {
         })
       },
       reconnectDelay: 3000,
+      debug: (msg) => {
+        // Previously this client had no debug/error callbacks at all, so a failed
+        // connection produced zero console output - it just silently never delivered
+        // events while endlessly retrying. This makes failures visible.
+        if (msg.toLowerCase().includes('error')) console.warn('[run-socket]', msg)
+      },
+      onStompError: (frame) => {
+        console.error('[run-socket] STOMP error:', frame.headers?.message, frame.body)
+      },
+      onWebSocketError: (event) => {
+        console.error('[run-socket] WebSocket error - check backend is running and /ws is reachable:', event)
+      },
     })
     client.activate()
     stompRef.current = client
